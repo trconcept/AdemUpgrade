@@ -1,0 +1,13 @@
+{
+  "name": "root-workspace",
+  "private": true,
+  "workspaces": [
+    "artifacts/*",
+    "lib/*",
+    "scripts"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@workspace/adem",
+    "build": "npm run build --workspaces --if-present"
+  }
+}
