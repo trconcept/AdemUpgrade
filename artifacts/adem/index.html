@@ -8,6 +8,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Prevent "Cannot set property fetch of #<Window> which has only a getter" from external polyfills
+      try {
+        const originalFetch = window.fetch;
+        Object.defineProperty(window, 'fetch', {
+          configurable: true,
+          enumerable: true,
+          get() { return originalFetch; },
+          set(newFetch) { /* ignore */ }
+        });
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -9,5 +9,12 @@
   "scripts": {
     "dev": "npm run dev --workspace=@workspace/adem",
     "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.42.0"
+  },
+  "dependencies": {
+    "@google/genai": "^1.51.0",
+    "react-zoom-pan-pinch": "^4.0.3"
   }
 }

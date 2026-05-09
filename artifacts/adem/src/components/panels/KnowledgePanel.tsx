@@ -1,7 +1,9 @@
-import { Brain, Droplet, Apple, Heart, Flame, Zap, AlertTriangle, ThermometerSnowflake, ThermometerSun, Skull } from 'lucide-react';
+import { Brain, Droplet, Apple, Heart, Flame, Zap, AlertTriangle, ThermometerSnowflake, ThermometerSun, Skull, ChevronDown, ChevronRight, MessageSquareCode, Hammer, Fingerprint } from 'lucide-react';
+import React, { useState } from 'react';
 import {
   KnowledgeBase,
   SimulationState,
+  Person,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from '../../lib/simulation';
@@ -9,6 +11,7 @@ import {
 interface Props {
   knowledge: KnowledgeBase;
   state: SimulationState;
+  person: Person;
 }
 
 function vitalColor(v: number): string {
@@ -22,76 +25,170 @@ function vitalGlow(v: number): number {
   return v < 30 ? 1 : v < 60 ? 0.6 : 0.3;
 }
 
-export function KnowledgePanel({ knowledge, state }: Props) {
-  const entries = Object.values(knowledge).sort((a, b) => b.confidence - a.confidence);
-  const v = state.vitals;
+function CollapsibleSection({ title, defaultOpen = true, children }: { title: string, defaultOpen?: boolean, children: React.ReactNode }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className="space-y-3 pb-3 border-b border-border/30 last:border-b-0">
+      <button 
+         onClick={() => setIsOpen(!isOpen)} 
+         className="w-full flex items-center justify-between text-[10px] font-mono text-muted-foreground uppercase tracking-widest hover:text-foreground transition-colors"
+      >
+        <span>{title}</span>
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {isOpen && <div className="animate-in slide-in-from-top-2 fade-in-50 duration-200">{children}</div>}
+    </div>
+  );
+}
+
+export function KnowledgePanel({ knowledge, state, person }: Props) {
+  const entries = Object.values(knowledge || {}).sort((a, b) => b.confidence - a.confidence);
+  const v = person.vitals;
 
   const avgConfidence = entries.length === 0 ? 0 :
     entries.reduce((s, e) => s + e.confidence, 0) / entries.length;
 
-  const visitedCount = Object.keys(state.visitedTiles).length;
+  const visitedCount = Object.keys(person.visitedTiles || {}).length;
   const exploreRatio = visitedCount / (WORLD_WIDTH * WORLD_HEIGHT);
   const totalTiles = WORLD_WIDTH * WORLD_HEIGHT;
 
   return (
     <div className="flex flex-col h-full bg-card/50 border-r border-border overflow-hidden">
-      <div className="p-4 border-b border-border/50 bg-background/50">
+      <div className="p-4 border-b border-border/50 bg-background/50 sticky top-0 z-10 w-full bg-gradient-to-b from-background to-transparent backdrop-blur-sm">
         <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-          Bilgi Veritabanı
+          Bilgi Veritabanı ({person.name})
         </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* BODY DIAGRAM */}
-        <div className="px-4 pt-4 pb-3 border-b border-border/40">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
-            Vücut Durumu
-          </div>
-          <BodyDiagram state={state} knowledgeCount={entries.length} avgConf={avgConfidence} />
+        <CollapsibleSection title="Vücut Durumu" defaultOpen={true}>
+          <BodyDiagram state={state} person={person} knowledgeCount={entries.length} avgConf={avgConfidence} />
 
           {/* current thought */}
           <div className="mt-3 px-2 py-1.5 rounded bg-background/40 border border-border/30 text-[10px] font-mono text-muted-foreground/80 text-center italic">
-            "{state.thinking}"
+            "{person.thinking}"
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* VITALS SHORT */}
-        <div className="px-4 py-3 border-b border-border/40">
+        <CollapsibleSection title="Hayati Özet" defaultOpen={false}>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px] font-mono">
             <VitalDot label="Sağlık" v={v.health} icon={<Heart size={9} />} />
+            <VitalDot label="Toksisite" v={Math.max(0, 100 - v.toxicity)} icon={<Skull size={9} />} />
             <VitalDot label="Susuzluk" v={v.thirst} icon={<Droplet size={9} />} />
             <VitalDot label="Açlık" v={v.hunger} icon={<Apple size={9} />} />
             <VitalDot label="Sıcaklık" v={v.temp} icon={state.env.ambientTemp > 30 ? <ThermometerSun size={9} /> : <ThermometerSnowflake size={9} />} />
             <VitalDot label="Enerji" v={v.energy} icon={<Zap size={9} />} />
-            <VitalDot label="Konfor" v={Math.max(0, 100 - Math.abs(20 - state.env.ambientTemp) * 4)} icon={<Flame size={9} />} />
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* PROGRESS */}
-        <div className="px-4 py-4 border-b border-border/40 space-y-3.5">
-          <ProgressBlock
-            label="Öğrenim Durumu"
-            value={`${entries.length} bilgi`}
-            sub={`Ortalama güven %${(avgConfidence * 100).toFixed(0)}`}
-            ratio={avgConfidence}
-            color="#7aa3c6"
-          />
-          <ProgressBlock
-            label="Keşfetme Durumu"
-            value={`${visitedCount} / ${totalTiles}`}
-            sub={`Dünyanın %${(exploreRatio * 100).toFixed(1)}'i`}
-            ratio={exploreRatio}
-            color="#a8956c"
-          />
-        </div>
+        <CollapsibleSection title="Öğrenim & Keşif" defaultOpen={true}>
+          <div className="space-y-3.5">
+            <ProgressBlock
+              label="Öğrenim Durumu"
+              value={`${entries.length} bilgi`}
+              sub={`Ortalama güven %${(avgConfidence * 100).toFixed(0)}`}
+              ratio={avgConfidence}
+              color="#7aa3c6"
+            />
+            <ProgressBlock
+              label="Keşfetme Durumu"
+              value={`${visitedCount} / ${totalTiles}`}
+              sub={`Dünyanın %${(exploreRatio * 100).toFixed(1)}'i`}
+              ratio={exploreRatio}
+              color="#a8956c"
+            />
+          </div>
+        </CollapsibleSection>
+
+        {/* LINGUISTICS & INVENTIONS */}
+        <CollapsibleSection title="Filogenetik Gelişim (Dil & Teknoloji)" defaultOpen={true}>
+           <div className="space-y-4">
+              <div className="bg-background/40 p-3 rounded border border-border/30">
+                 <div className="flex items-center gap-2 mb-2 text-[10px] font-mono text-cyan-400">
+                    <MessageSquareCode size={12} />
+                    <span>LİNGUİSTİK KALİBRASYON</span>
+                 </div>
+                 <div className="flex flex-wrap gap-1.5">
+                    {state.linguistics.vocabulary.length === 0 && <span className="text-[10px] text-muted-foreground italic">Henüz kavram simgesi yok.</span>}
+                    {state.linguistics.vocabulary.map((word, i) => (
+                       <span key={i} className="text-[10px] font-mono px-2 py-0.5 bg-cyan-950/30 border border-cyan-500/20 text-cyan-200 rounded-sm">
+                          {word}
+                       </span>
+                    ))}
+                 </div>
+                 <div className="mt-3 pt-2 border-t border-border/10">
+                    <div className="flex justify-between text-[9px] font-mono text-muted-foreground mb-1">
+                       <span>SENTAKS KARMAŞIKLIĞI</span>
+                       <span>%{(state.linguistics.syntaxComplexity * 100).toFixed(1)}</span>
+                    </div>
+                    <div className="w-full h-0.5 bg-muted/30 rounded-full overflow-hidden">
+                       <div className="h-full bg-cyan-500 transition-all duration-1000" style={{ width: `${state.linguistics.syntaxComplexity * 100}%` }} />
+                    </div>
+                 </div>
+              </div>
+
+              <div className="bg-background/40 p-3 rounded border border-border/30">
+                 <div className="flex items-center gap-2 mb-2 text-[10px] font-mono text-amber-500">
+                    <Hammer size={12} />
+                    <span>PROSEDÜREL KEŞİFLER</span>
+                 </div>
+                 <div className="space-y-1.5">
+                    {state.inventions.length === 0 && <span className="text-[10px] text-muted-foreground italic">Araç kullanımı henüz soyut.</span>}
+                    {state.inventions.map((inv, i) => (
+                       <div key={i} className="flex items-center gap-2 text-[11px] font-mono text-foreground/90">
+                          <div className="w-1 h-1 bg-amber-500 rounded-full" />
+                          {inv}
+                       </div>
+                    ))}
+                 </div>
+              </div>
+
+              <div className="bg-background/40 p-3 rounded border border-border/30">
+                 <div className="flex items-center gap-2 mb-2 text-[10px] font-mono text-indigo-400">
+                    <Fingerprint size={12} />
+                    <span>SOYUT SEMBOLİZM</span>
+                 </div>
+                 <div className="flex gap-3 text-lg font-serif text-indigo-200/60 transition-all duration-1000">
+                    {state.linguistics.discoveredSymbols.length === 0 && <span className="text-[10px] font-mono italic text-muted-foreground">İşaret bekleniyor...</span>}
+                    {state.linguistics.discoveredSymbols.map((s, i) => (
+                        <span key={i} className="animate-in zoom-in-50 duration-700">{s}</span>
+                    ))}
+                 </div>
+              </div>
+           </div>
+        </CollapsibleSection>
+
+        {/* ARCHAEOLOGY */}
+        {state.env.archaeology && state.env.archaeology.length > 0 && (
+          <CollapsibleSection title="Arkeolojik Kayıtlar" defaultOpen={false}>
+            <div className="space-y-1.5 px-1">
+              {state.env.archaeology.slice().reverse().slice(0, 10).map((entry, i) => (
+                <div key={i} className="text-[10px] font-mono px-2 py-1.5 rounded bg-background/30 border border-border/30 hover:border-cyan-500/20 transition-all">
+                  <div className="flex justify-between items-center text-cyan-400/80 mb-1">
+                    <span className="font-bold tracking-tighter">{entry.action}</span>
+                    <span className="opacity-50">T+{entry.timestamp}</span>
+                  </div>
+                  <div className="text-muted-foreground/70 text-[9px] leading-tight">
+                    LOC: {entry.x},{entry.y} ALT: {entry.z}m<br/>
+                    TRANS: {entry.prevTile} <span className="text-primary/60">→</span> {entry.newTile}
+                  </div>
+                </div>
+              ))}
+              {state.env.archaeology.length > 10 && (
+                <div className="text-[9px] text-center text-muted-foreground/40 italic pt-1">
+                  + {state.env.archaeology.length - 10} kayıt daha derinde...
+                </div>
+              )}
+            </div>
+          </CollapsibleSection>
+        )}
 
         {/* LIVES HISTORY */}
         {state.livesHistory.length > 0 && (
-          <div className="px-4 py-4 border-b border-border/40">
-            <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
-              <Skull size={11} />
-              Geçmiş Yaşamlar
-            </div>
+          <CollapsibleSection title="Geçmiş Yaşamlar" defaultOpen={false}>
             <div className="space-y-1.5">
               {state.livesHistory.slice().reverse().slice(0, 6).map((life, i) => (
                 <div key={i} className="text-[11px] font-mono flex justify-between items-baseline gap-2 px-2 py-1 rounded bg-background/30 border border-border/30">
@@ -101,45 +198,69 @@ export function KnowledgePanel({ knowledge, state }: Props) {
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* KNOWLEDGE ENTRIES */}
-        <div className="px-4 py-4 space-y-2">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
-            Edinilen Bilgiler
-          </div>
-          {entries.length === 0 && (
-            <p className="text-xs text-muted-foreground font-mono opacity-60">
-              Henüz bilgi yok. ADEM keşfediyor...
-            </p>
-          )}
-          {entries.slice(0, 14).map((entry, i) => (
-            <div
-              key={i}
-              className="fade-in p-2.5 rounded bg-background/40 border border-border/40 hover:border-primary/30 transition-colors"
-            >
-              <p className="text-xs text-card-foreground/90 leading-snug">{entry.outcomeText}</p>
-              <div className="mt-1.5 flex items-center gap-2">
-                <div className="flex-1 h-0.5 bg-muted/50 rounded-full overflow-hidden">
-                  <div
-                    className="h-full transition-all duration-500"
-                    style={{
-                      width: `${entry.confidence * 100}%`,
-                      background: 'linear-gradient(90deg, #7aa3c6, #6ea587)',
-                    }}
-                  />
+        <CollapsibleSection title="Edinilen Bilgiler" defaultOpen={true}>
+          <div className="space-y-2">
+            {entries.length === 0 && (
+              <p className="text-xs text-muted-foreground font-mono opacity-60">
+                Henüz bilgi yok. ADEM keşfediyor...
+              </p>
+            )}
+            {entries.slice(0, 14).map((entry, i) => {
+              const word = state.linguistics.wordMap[entry.situation] || entry.situation;
+              const symbol = state.linguistics.symbolMap[entry.situation] || (state.godMode ? '?' : '');
+              const displayTitle = state.godMode ? `${entry.situation.toUpperCase()} (${word})` : `DENEYİM: ${word}`;
+              
+              return (
+                <div
+                  key={i}
+                  className="fade-in p-2.5 rounded bg-background/40 border border-border/40 hover:border-primary/30 transition-colors"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-[10px] font-mono text-cyan-400 font-bold tracking-tight">
+                      {displayTitle}
+                    </span>
+                    {symbol && (
+                      <span className="text-lg font-serif text-indigo-300 opacity-60 leading-none">
+                        {symbol}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-1 mb-2 text-[9px] font-mono text-muted-foreground/80">
+                    <div><span className="opacity-50">Durum:</span> {entry.situation}</div>
+                    <div><span className="opacity-50">Eylem:</span> {entry.action}</div>
+                  </div>
+                  
+                  <p className="text-[10px] text-muted-foreground/90 mb-2 leading-tight border-l border-border/30 pl-2">
+                    {entry.outcomeText}
+                  </p>
+
+                  <div className="mt-1.5 flex items-center gap-2">
+                  <div className="flex-1 h-0.5 bg-muted/50 rounded-full overflow-hidden">
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{
+                        width: `${entry.confidence * 100}%`,
+                        background: 'linear-gradient(90deg, #7aa3c6, #6ea587)',
+                      }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-muted-foreground tabular-nums">
+                    {(entry.confidence * 100).toFixed(0)}%
+                  </span>
+                  <span className="text-[9px] font-mono text-muted-foreground/60 w-6 text-right">
+                    ×{entry.occurrences}
+                  </span>
                 </div>
-                <span className="text-[9px] font-mono text-muted-foreground tabular-nums">
-                  {(entry.confidence * 100).toFixed(0)}%
-                </span>
-                <span className="text-[9px] font-mono text-muted-foreground/60">
-                  ×{entry.occurrences}
-                </span>
               </div>
-            </div>
-          ))}
-        </div>
+            );
+          })}
+          </div>
+        </CollapsibleSection>
       </div>
     </div>
   );
@@ -177,10 +298,10 @@ function ProgressBlock({
 }
 
 function BodyDiagram({
-  state, knowledgeCount, avgConf,
-}: { state: SimulationState; knowledgeCount: number; avgConf: number }) {
-  const v = state.vitals;
-  const alerts = state.recentAlerts;
+  state, person, knowledgeCount, avgConf,
+}: { state: SimulationState; person: Person; knowledgeCount: number; avgConf: number }) {
+  const v = person.vitals;
+  const alerts = person.recentAlerts;
   const hasAlert = (a: string) => alerts.includes(a as never);
   const overheating = state.env.ambientTemp > 30;
 
@@ -202,10 +323,10 @@ function BodyDiagram({
         viewBox="0 0 100 200"
         className="absolute inset-0 w-full h-full"
         style={{
-          filter: "drop-shadow(0 0 8px rgba(122, 180, 220, 0.4))",
+          filter: "drop-shadow(0 0 10px rgba(122, 180, 220, 0.6))",
           strokeWidth: 1.5,
-          stroke: "rgba(122, 180, 220, 0.6)",
-          fill: "rgba(122, 180, 220, 0.05)",
+          stroke: "rgba(122, 180, 220, 0.9)",
+          fill: "rgba(122, 180, 220, 0.2)",
         }}
       >
         <path d="M50 10 C55 10 58 13 58 18 C58 23 55 26 50 26 C45 26 42 23 42 18 C42 13 45 10 50 10 Z" />
