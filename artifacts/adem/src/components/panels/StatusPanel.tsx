@@ -1,6 +1,7 @@
-import { SimulationState, EventLog, weatherLabel, seasonLabel, timeOfDayLabel, DailyStats, Person } from '../../lib/simulation';
-import { Footprints, Brain, Moon, Bed, AlertCircle, Eye, ChevronRight, ChevronDown, Package, Apple, Sprout, Flower2, User } from 'lucide-react';
+import { SimulationState, EventLog, weatherLabel, seasonLabel, timeOfDayLabel, DailyStats, Person, DNA } from '../../lib/simulation';
+import { Footprints, Brain, Moon, Bed, AlertCircle, Eye, ChevronRight, ChevronDown, Package, Apple, Sprout, Flower2, User, Shield, Activity, Dna } from 'lucide-react';
 import React, { useState } from 'react';
+import { Progress } from '@/components/ui/progress';
 
 const TICK_SECONDS = 0.8;
 function fmtTicks(t: number): string {
@@ -28,10 +29,11 @@ function CollapsibleSection({ title, defaultOpen = true, children }: { title: st
 }
 
 export function StatusPanel({ state, person }: { state: SimulationState, person: Person }) {
+  const [activeTab, setActiveTab] = useState<StatusTab>('general');
   const v = person.vitals;
   const isAdem = person.gender === 'male';
 
-  const renderBar = (label: string, val: number, colorVar: string) => (
+  const renderBar = (label: string, val: number, colorVar: string, colorClass?: string) => (
     <div className="space-y-1.5" key={label}>
       <div className="flex justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
@@ -39,11 +41,10 @@ export function StatusPanel({ state, person }: { state: SimulationState, person:
       </div>
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div
-          className="h-full transition-all duration-500 ease-out"
+          className={`h-full transition-all duration-500 ease-out ${colorClass || ''}`}
           style={{
             width: `${val}%`,
-            backgroundColor: isAdem ? `hsl(var(--${colorVar}))` : (colorVar === 'health' ? '#ec4899' : `hsl(var(--${colorVar}))`),
-            opacity: val < 20 ? 0.85 : 1,
+            backgroundColor: colorClass ? undefined : (isAdem ? `hsl(var(--${colorVar}))` : (colorVar === 'health' ? '#ec4899' : `hsl(var(--${colorVar}))`)),
           }}
         />
       </div>
@@ -58,109 +59,153 @@ export function StatusPanel({ state, person }: { state: SimulationState, person:
 
   return (
     <div className="flex-shrink-0 flex flex-col border-b border-border bg-card/30 max-h-[65%] overflow-hidden">
-      <div className={`p-4 border-b border-border/50 flex justify-between items-center sticky top-0 z-10 ${isAdem ? 'bg-indigo-500/5' : 'bg-pink-500/5'}`}>
-        <div className="flex items-center gap-2">
-           <User size={14} className={isAdem ? 'text-blue-400' : 'text-pink-400'} />
-           <h2 className={`text-xs font-mono uppercase tracking-widest ${isAdem ? 'text-blue-400' : 'text-pink-400'}`}>
-             {isAdem ? 'ADEM VERİ HATTI' : 'HAVVA VERİ HATTI'}
-           </h2>
+      {/* Header & Tabs */}
+      <div className={`pt-4 px-4 sticky top-0 z-10 ${isAdem ? 'bg-indigo-500/5' : 'bg-pink-500/5'}`}>
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+            <User size={14} className={isAdem ? 'text-blue-400' : 'text-pink-400'} />
+            <h2 className={`text-xs font-mono uppercase tracking-widest ${isAdem ? 'text-blue-400' : 'text-pink-400'}`}>
+              {isAdem ? 'ADEM TELEMETRİ' : 'HAVVA TELEMETRİ'}
+            </h2>
+          </div>
+          <div className={`text-[9px] font-mono px-2 py-0.5 rounded-full ${isAdem ? 'bg-primary/10 text-primary' : 'bg-pink-500/10 text-pink-500'}`}>
+             YAŞAM #{state.generation}
+          </div>
         </div>
-        <div className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isAdem ? 'bg-primary/10 text-primary' : 'bg-pink-500/10 text-pink-500'}`}>
-           YAŞAM #{state.generation}
+
+        <div className="flex border-b border-border/40 overflow-x-auto no-scrollbar">
+           {(['general', 'biology', 'psychology'] as StatusTab[]).map(tab => (
+             <button
+               key={tab}
+               onClick={() => setActiveTab(tab)}
+               className={`px-3 py-2 text-[9px] font-bold uppercase tracking-widest transition-all relative flex-shrink-0 ${activeTab === tab ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+             >
+               {tab === 'general' ? 'DURUM' : tab === 'biology' ? 'BİYOLOJİ' : 'PSİKOLOJİ'}
+               {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
+             </button>
+           ))}
         </div>
       </div>
 
       <div className="p-4 overflow-y-auto space-y-4 custom-scrollbar">
-        
-        <CollapsibleSection title="ORTAM & BİLGİ" defaultOpen={true}>
-          <div className="grid grid-cols-2 gap-3 text-sm font-mono bg-background/50 p-3 rounded border border-border/30">
-            <Cell label="Hayatta Kalma" value={`${state.daysSurvived}`} sub="Gün" />
-            <Cell label="Zaman" value={timeStr} sub={timeOfDayLabel(state.env.timeOfDay)} />
-            <Cell label="Mevsim" value={seasonLabel(state.env.season)} sub="" />
-            <Cell label="Hava" value={weatherLabel(state.env.weather)} sub={`${ambient > 0 ? '+' : ''}${ambient.toFixed(1)}°C`} />
-            <Cell label="Konum" value={`${person.pos.x}, ${person.pos.y}`} sub={`Biyom: ${state.env.biomes[person.pos.y][person.pos.x]}`} />
-            <Cell label="Bilişsel Seviye" value={`L${Math.floor(person.totalSteps / 500 + state.generation * 2)}`} sub={`${state.daysSurvived * 10} IQ eq.`} />
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection title="BİLİŞSEL MİMARİ" defaultOpen={true}>
-          <div className="bg-background/40 p-3 rounded border border-border/20 space-y-2">
-            <div className="flex items-center gap-2">
-              <Brain size={14} className="text-primary/80" />
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Zihinsel Durum</span>
-            </div>
-            <div className="text-sm font-mono text-primary font-medium tracking-tight">
-              {state.godMode ? state.cognitiveArchitecture : state.cognitiveArchitecture.split(' ')[0]}
-            </div>
-            <div className="text-[10px] text-muted-foreground/80 font-mono leading-tight border-t border-border/10 pt-2 flex gap-1.5">
-              <span className="opacity-50">&gt;_</span>
-              <span>{state.godMode ? person.thinking : (person.thinking || '').replace(/\[.*?\]/g, '').trim()}</span>
-            </div>
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection title="ENVANTER (ZULA)" defaultOpen={true}>
-          <div className="bg-background/40 p-3 rounded border border-border/20 grid grid-cols-2 gap-2">
-            <div className="flex items-center gap-2 p-1.5 bg-black/20 rounded border border-white/5">
-              <Apple size={14} className="text-emerald-500" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-muted-foreground uppercase leading-none">
-                  {state.godMode ? 'Meyve' : (state.linguistics.wordMap['safe_fruit'] || '???')}
-                </span>
-                <span className="text-xs font-mono font-bold leading-tight">{person.inventory['safe_fruit'] || 0}</span>
+        {activeTab === 'general' && (
+          <>
+            <CollapsibleSection title="ORTAM & BİLGİ" defaultOpen={true}>
+              <div className="grid grid-cols-2 gap-3 text-sm font-mono bg-background/50 p-3 rounded border border-border/30">
+                <Cell label="Hayatta Kalma" value={`${state.daysSurvived}`} sub="Gün" />
+                <Cell label="Zaman" value={timeStr} sub={timeOfDayLabel(state.env.timeOfDay)} />
+                <Cell label="Mevsim" value={seasonLabel(state.env.season)} sub="" />
+                <Cell label="Hava" value={weatherLabel(state.env.weather)} sub={`${ambient > 0 ? '+' : ''}${ambient.toFixed(1)}°C`} />
+                <Cell label="Konum" value={`${person.pos.x}, ${person.pos.y}`} sub={`Biyom: ${state.env.biomes[person.pos.y][person.pos.x]}`} />
+                <Cell label="Bilişsel Seviye" value={`L${Math.floor(person.totalSteps / 500 + state.generation * 2)}`} sub="" />
               </div>
-            </div>
-            <div className="flex items-center gap-2 p-1.5 bg-black/20 rounded border border-white/5">
-              <Sprout size={14} className="text-orange-400" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-muted-foreground uppercase leading-none">
-                  {state.godMode ? 'Mantar' : (state.linguistics.wordMap['mushroom'] || '???')}
-                </span>
-                <span className="text-xs font-mono font-bold leading-tight">{person.inventory['mushroom'] || 0}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 p-1.5 bg-black/20 rounded border border-white/5">
-              <Flower2 size={14} className="text-indigo-400" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-muted-foreground uppercase leading-none">
-                  {state.godMode ? 'Bitki' : (state.linguistics.wordMap['herb'] || '???')}
-                </span>
-                <span className="text-xs font-mono font-bold leading-tight">{person.inventory['herb'] || 0}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 p-1.5 bg-black/20 rounded border border-white/5 opacity-40">
-              <Package size={14} className="text-muted-foreground" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-muted-foreground uppercase leading-none">Diğer</span>
-                <span className="text-xs font-mono font-bold leading-tight">0</span>
-              </div>
-            </div>
-          </div>
-        </CollapsibleSection>
+            </CollapsibleSection>
 
-        <CollapsibleSection title="Hayati Belirtiler" defaultOpen={true}>
-          <div className="space-y-3.5">
-            {renderBar('Sağlık', v.health, 'health')}
-            {renderBar('Açlık', v.hunger, 'hunger')}
-            {renderBar('Susuzluk', v.thirst, 'thirst')}
-            {renderBar('Sıcaklık', v.temp, 'temp')}
-            {renderBar('Enerji', v.energy, 'energy')}
-          </div>
-        </CollapsibleSection>
+            <CollapsibleSection title="BİLİŞSEL ODAK" defaultOpen={true}>
+              <div className="bg-background/40 p-3 rounded border border-border/20 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Brain size={14} className="text-primary/80" />
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Aktif Düşünce</span>
+                </div>
+                <div className="text-[11px] font-mono text-primary leading-tight italic">
+                   {person.thinking ? `"${person.thinking}"` : "Zihin sessiz..."}
+                </div>
+              </div>
+            </CollapsibleSection>
 
-        <CollapsibleSection title="Fiziksel Kondisyon" defaultOpen={false}>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
-            {renderBar('Kafa', v.bodyParts.head, 'health')}
-            {renderBar('Gövde', v.bodyParts.torso, 'health')}
-            {renderBar('Kollar', v.bodyParts.arms, 'health')}
-            {renderBar('Bacaklar', v.bodyParts.legs, 'health')}
-          </div>
-        </CollapsibleSection>
+            <CollapsibleSection title="Hayati Belirtiler" defaultOpen={true}>
+              <div className="space-y-3.5">
+                {renderBar('Sağlık', v.health, 'health')}
+                {renderBar('Açlık', v.hunger, 'hunger')}
+                {renderBar('Susuzluk', v.thirst, 'thirst')}
+                {renderBar('Sıcaklık', v.temp, 'temp')}
+                {renderBar('Enerji', v.energy, 'energy')}
+              </div>
+            </CollapsibleSection>
+          </>
+        )}
 
-        <CollapsibleSection title="Günlük Aktivite Özeti" defaultOpen={false}>
+        {activeTab === 'biology' && (
+           <div className="space-y-6">
+              <div className="p-3 bg-blue-500/5 rounded-lg border border-blue-500/10 space-y-2">
+                 <h4 className="text-[10px] font-bold text-blue-400 flex items-center gap-2 uppercase tracking-widest">
+                    <Shield size={12} /> Savunmasızlık Analizi
+                 </h4>
+                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
+                   "Yalnızlık ve stres, metabolik hızı %20 artırır. Güvende hissetmek hayati önem taşır."
+                 </p>
+              </div>
+
+              <div className="space-y-4">
+                 <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
+                    <div className="p-2 bg-muted/20 rounded">BOY: {person.anatomy.height}cm</div>
+                    <div className="p-2 bg-muted/20 rounded">AĞIRLIK: {person.anatomy.weight}kg</div>
+                    <div className="p-2 bg-muted/20 rounded col-span-2">İSKELET: {isAdem ? 'Dar Pelvis' : 'Geniş Pelvis'}</div>
+                 </div>
+
+                 <div className="space-y-3">
+                    <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/20 pb-1">Anatomik Profil</div>
+                    {renderBar('Kas Kütlesi', person.anatomy.muscleMass * 100, '', isAdem ? 'bg-blue-500' : 'bg-pink-400')}
+                    {renderBar('Metabolizma', 90, '', isAdem ? 'bg-blue-300' : 'bg-pink-500')}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {activeTab === 'psychology' && (
+           <div className="space-y-6">
+              <div className="space-y-4">
+                 <div className="flex items-center gap-2">
+                    <Activity size={16} className="text-primary" />
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Zihinsel Durum</span>
+                 </div>
+                 <div className="space-y-3">
+                    {renderBar('Mutluluk', person.psychology.emotions.happiness, '', 'bg-emerald-500')}
+                    {renderBar('Merak', person.psychology.emotions.curiosity, '', 'bg-sky-500')}
+                    {renderBar('Stres', person.psychology.emotions.stress, '', 'bg-amber-500')}
+                    {renderBar('Korku', person.psychology.emotions.fear, '', 'bg-rose-500')}
+                 </div>
+              </div>
+
+              <div className="p-3 bg-primary/5 rounded-lg border border-primary/20 space-y-3">
+                 <h4 className="text-[10px] font-bold text-primary flex items-center gap-2 uppercase tracking-widest">
+                    <Dna size={12} /> Primat Mirası & DNA
+                 </h4>
+                 <div className="grid gap-3">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>Sosyal Hiyerarşi</span>
+                        <span>%{person.dna.traits.socialHierarchy}</span>
+                      </div>
+                      <Progress value={person.dna.traits.socialHierarchy} className="h-1 bg-black/20" indicatorClassName="bg-purple-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>Primat Mirası</span>
+                        <span>%{person.dna.traits.primateHeritage}</span>
+                      </div>
+                      <Progress value={person.dna.traits.primateHeritage} className="h-1 bg-black/20" indicatorClassName="bg-indigo-500" />
+                    </div>
+                 </div>
+              </div>
+           </div>
+        )}
+
+        <CollapsibleSection title="GÜNLÜK AKTİVİTE ÖZETİ" defaultOpen={false}>
           <DailyStatsCard today={person.dailyStats} yesterday={person.yesterdayStats} totalSteps={person.totalSteps} />
         </CollapsibleSection>
+      </div>
+    </div>
+  );
+}
 
+function InventoryItem({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: number, color: string }) {
+  return (
+    <div className="flex items-center gap-2 p-1.5 bg-black/20 rounded border border-white/5">
+      <div className={color}>{icon}</div>
+      <div className="flex flex-col">
+        <span className="text-[9px] text-muted-foreground uppercase leading-none">{label}</span>
+        <span className="text-xs font-mono font-bold leading-tight">{value || 0}</span>
       </div>
     </div>
   );
@@ -227,32 +272,48 @@ function Cell({ label, value, sub }: { label: string; value: string; sub: string
   );
 }
 
-export function EventLogPanel({ logs }: { logs: EventLog[] }) {
+export function EventLogPanel({ logs, trackingAgent }: { logs: EventLog[], trackingAgent?: 'adem' | 'havva' }) {
+  const filteredLogs = logs.filter(log => {
+    if (!trackingAgent) return true;
+    const msg = (log.text || log.message || '').toLowerCase();
+    // If it mentions the other agent but not this one, filter it out (basic heuristic).
+    const isAdem = msg.includes('adem');
+    const isHavva = msg.includes('havva');
+    if (trackingAgent === 'adem' && isHavva && !isAdem) return false;
+    if (trackingAgent === 'havva' && isAdem && !isHavva) return false;
+    // Allow global events or ones containing the agent's name.
+    return true;
+  });
+
   return (
     <div className="flex-1 min-h-[200px] flex flex-col bg-card/20">
       <div className="p-4 border-b border-border/50 bg-background/50">
-        <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Olay Günlüğü</h2>
+        <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Olay Günlüğü ({trackingAgent === 'adem' ? 'Adem' : trackingAgent === 'havva' ? 'Havva' : 'Genel'})</h2>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {logs.length === 0 && (
+        {filteredLogs.length === 0 && (
           <p className="text-xs text-muted-foreground font-mono opacity-50">Henüz olay yok.</p>
         )}
-        {logs.map((log) => (
-          <div key={log.id} className="fade-in flex gap-3 text-sm">
-            <div className="text-muted-foreground font-mono text-[10px] sm:text-xs whitespace-nowrap pt-0.5">
-              [G{log.day} {log.time}]
+        {filteredLogs.map((log) => {
+          const t = log.type || log.category;
+          return (
+            <div key={log.id} className="fade-in flex gap-3 text-sm">
+              <div className="text-muted-foreground font-mono text-[10px] sm:text-xs whitespace-nowrap pt-0.5">
+                [{log.day !== undefined ? `G${log.day}` : `Tick ${log.tick}`} {log.time || ''}]
+              </div>
+              <div
+                className={
+                  t === 'good' ? 'text-[#6ea587]' :
+                  t === 'bad' ? 'text-[#c54b5c]' :
+                  t === 'death' || t === 'critical' ? 'text-red-500 font-bold' :
+                  'text-card-foreground/80'
+                }
+              >
+                {log.text || log.message}
+              </div>
             </div>
-            <div
-              className={
-                log.type === 'good' ? 'text-[#6ea587]' :
-                log.type === 'bad' ? 'text-[#c54b5c]' :
-                'text-card-foreground/80'
-              }
-            >
-              {log.text}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -90,6 +90,22 @@ export function LineageExplorerPanel({ state }: Props) {
         <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-1 flex items-center gap-1">
            <GitMerge size={12} /> SOY HATTI & KALITIM (Crossover)
         </div>
+
+        {/* AI Lineage Analysis */}
+        <div className="bg-primary/5 rounded p-3 border border-primary/10 space-y-2 mb-2">
+            <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+              Mevcut jenerasyon (GEN-{generation}), geçmişte yaşanan {livesHistory.length} farklı soy tükenmesini atlatıp 
+              kümülatif mutasyonlar ile daha dirençli hale geldi. Kayıtlı en sık ölüm nedeni: {" "}
+              {livesHistory.length > 0 ? 
+                <span className="font-bold text-rose-400">
+                  {Object.entries(livesHistory.reduce((acc, curr) => {
+                     acc[curr.cause] = (acc[curr.cause] || 0) + 1; return acc;
+                  }, {} as Record<string,number>)).sort((a,b) => b[1] - a[1])[0][0]}
+                </span> : "Henüz ölüm yok."
+              }
+            </p>
+        </div>
+
         <div className="bg-card/30 p-3 rounded-lg border border-border/50 relative">
           <div className="absolute left-[20px] top-4 bottom-4 w-[2px] bg-emerald-500/20 z-0"></div>
           

@@ -7,9 +7,11 @@ import {
   weatherLabel,
   CREATURE_INFO,
   getCoordinates,
-  BiomeType
+  BiomeType,
+  CreatureKind,
+  CREATURE_DETAILS
 } from '../../lib/simulation';
-import { HelpCircle, X, Package, Brain, ShieldCheck, Compass } from 'lucide-react';
+import { HelpCircle, X, Package, Brain, ShieldCheck, Compass, Activity, Layers, Info } from 'lucide-react';
 
 const BASE_TILE_SIZE = 32;
 
@@ -20,7 +22,9 @@ const SURVIVAL_TIPS = [
   "Kayalıklardan inerken dikkatli ol, düşebilirsin.",
   "Barınak inşa etmek fırtınalarda hayatta kalmanı sağlar.",
   "Mantar yemek risklidir ama bazen tek seçenektir.",
-  "Alet yapmak (Krok-Vara) verimliliği artırır.",
+  "Alet yapmak (Knapping) için kayalıklarda çalış.",
+  "Kıvılcımları ateşlemek için kuru otlara (Tinder) ihtiyacın var.",
+  "Kurt sürülerini gözlemleyerek sosyal bağları öğrenebilirsin.",
   "Vücut ısın 30°C altına düşerse hipotermi başlar.",
   "Şifalı bitkiler zehirlenme etkisini azaltır."
 ];
@@ -61,6 +65,18 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
 
   const [clickedTile, setClickedTile] = useState<{ x: number, y: number, tile: string } | null>(null);
 
+  const [showCreatures, setShowCreatures] = useState<boolean>(true);
+  const [hiddenKinds, setHiddenKinds] = useState<string[]>([]);
+  const [showFilter, setShowFilter] = useState(false);
+
+  const showCreaturesRef = useRef(true);
+  const hiddenKindsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    showCreaturesRef.current = showCreatures;
+    hiddenKindsRef.current = hiddenKinds;
+  }, [showCreatures, hiddenKinds]);
+
   const distBetween = Math.sqrt(
     Math.pow(state.adem.pos.x - state.havva.pos.x, 2) + 
     Math.pow(state.adem.pos.y - state.havva.pos.y, 2)
@@ -70,41 +86,53 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
     setZoom(prev => clampN(prev - e.deltaY * 0.001, 0.5, 3.0));
   };
 
-  const handleMouseClick = (e: React.MouseEvent) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  const isDragging = useRef(false);
+  const hasDragged = useRef(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
+  const [isFollowingAdem, setIsFollowingAdem] = useState(true);
 
-    const camX = camRef.current.x;
-    const camY = camRef.current.y;
-    const tileStartX = Math.floor(camX);
-    const tileStartY = Math.floor(camY);
-    const offsetX = -(camX - tileStartX) * TILE_SIZE;
-    const offsetY = -(camY - tileStartY) * TILE_SIZE;
+  const toggleKindFilter = (kind: string) => {
+    setHiddenKinds(prev => prev.includes(kind) ? prev.filter(k => k !== kind) : [...prev, kind]);
+  };
 
-    const dx = Math.floor((x - offsetX) / TILE_SIZE);
-    const dy = Math.floor((y - offsetY) / TILE_SIZE);
-    const wx = tileStartX + dx;
-    const wy = tileStartY + dy;
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isDragging.current = true;
+    hasDragged.current = false;
+    lastMousePos.current = { x: e.clientX, y: e.clientY };
+  };
 
-    if (wx >= 0 && wy >= 0 && wx < WORLD_WIDTH && wy < WORLD_HEIGHT) {
-      setClickedTile({ x: wx, y: wy, tile: state.env.grid[wy][wx] });
-    } else {
-      setClickedTile(null);
-    }
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
+
+  const handleMouseLeave = () => {
+    isDragging.current = false;
+    setHoveredTile(null);
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging.current) {
+      hasDragged.current = true;
+      const dx = e.clientX - lastMousePos.current.x;
+      const dy = e.clientY - lastMousePos.current.y;
+      camRef.current.x -= dx / TILE_SIZE;
+      camRef.current.y -= dy / TILE_SIZE;
+      
+      // Keep camera within bounds
+      const tilesX = Math.ceil(size.w / TILE_SIZE);
+      const tilesY = Math.ceil(size.h / TILE_SIZE);
+      camRef.current.x = clampN(camRef.current.x, 0, Math.max(0, WORLD_WIDTH - tilesX));
+      camRef.current.y = clampN(camRef.current.y, 0, Math.max(0, WORLD_HEIGHT - tilesY));
+      
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      setIsFollowingAdem(false);
+    }
+
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const tilesX = Math.ceil(size.w / TILE_SIZE);
-    const tilesY = Math.ceil(size.h / TILE_SIZE);
-    
-    // Reverse calculation of wx/wy
     const camX = camRef.current.x;
     const camY = camRef.current.y;
     const tileStartX = Math.floor(camX);
@@ -153,6 +181,69 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
     stateRef.current = state;
   }, [state]);
 
+  const [selectedEntity, setSelectedEntity] = useState<{ type: 'creature' | 'tile', data: any } | null>(null);
+
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (hasDragged.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const camX = camRef.current.x;
+    const camY = camRef.current.y;
+    const tileStartX = Math.floor(camX);
+    const tileStartY = Math.floor(camY);
+    const offsetX = -(camX - tileStartX) * TILE_SIZE;
+    const offsetY = -(camY - tileStartY) * TILE_SIZE;
+
+    const dx = Math.floor((x - offsetX) / TILE_SIZE);
+    const dy = Math.floor((y - offsetY) / TILE_SIZE);
+    const gridX = tileStartX + dx;
+    const gridY = tileStartY + dy;
+
+    if (gridX < 0 || gridX >= WORLD_WIDTH || gridY < 0 || gridY >= WORLD_HEIGHT) return;
+
+    // Check for creatures first
+    const clickedCreature = state.env.creatures.find(c => c.pos.x === gridX && c.pos.y === gridY);
+    if (clickedCreature) {
+      setSelectedEntity({ type: 'creature', data: clickedCreature });
+      return;
+    }
+
+    // Check for Adem/Havva
+    if (state.adem.pos.x === gridX && state.adem.pos.y === gridY) {
+      setSelectedEntity({ type: 'creature', data: { kind: 'HUMAN (ADEM)', ...state.adem } });
+      return;
+    }
+    if (state.havva.pos.x === gridX && state.havva.pos.y === gridY) {
+      setSelectedEntity({ type: 'creature', data: { kind: 'HUMAN (HAVVA)', ...state.havva } });
+      return;
+    }
+
+    const clickedChild = state.children?.find((c: any) => c.pos.x === gridX && c.pos.y === gridY);
+    if (clickedChild) {
+      setSelectedEntity({ type: 'creature', data: { kind: `CHILD (${clickedChild.name})`, ...clickedChild } });
+      return;
+    }
+
+    // Otherwise show tile info
+    const tile = state.env.grid[gridY][gridX];
+    const biome = state.env.biomes[gridY][gridX];
+    const height = state.env.heights[gridY][gridX];
+    setSelectedEntity({ 
+      type: 'tile', 
+      data: { tile, biome, height, x: gridX, y: gridY } 
+    });
+  };
+
+  const isFollowingAdemRef = useRef(isFollowingAdem);
+  useEffect(() => {
+    isFollowingAdemRef.current = isFollowingAdem;
+  }, [isFollowingAdem]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -167,11 +258,15 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
     const tilesY = Math.ceil(size.h / TILE_SIZE);
 
     const draw = () => {
-      // Smoothly interpolate camera toward ADEM
-      const targetCamX = clampN(state.adem.pos.x - tilesX / 2 + 0.5, 0, Math.max(0, WORLD_WIDTH - tilesX));
-      const targetCamY = clampN(state.adem.pos.y - tilesY / 2 + 0.5, 0, Math.max(0, WORLD_HEIGHT - tilesY));
-      camRef.current.x += (targetCamX - camRef.current.x) * 0.12;
-      camRef.current.y += (targetCamY - camRef.current.y) * 0.12;
+      if (isFollowingAdemRef.current) {
+        if (stateRef.current && stateRef.current.adem && stateRef.current.adem.pos) {
+          // Smoothly interpolate camera toward ADEM
+          const targetCamX = clampN(stateRef.current.adem.pos.x - tilesX / 2 + 0.5, 0, Math.max(0, WORLD_WIDTH - tilesX));
+          const targetCamY = clampN(stateRef.current.adem.pos.y - tilesY / 2 + 0.5, 0, Math.max(0, WORLD_HEIGHT - tilesY));
+          camRef.current.x += (targetCamX - camRef.current.x) * 0.12;
+          camRef.current.y += (targetCamY - camRef.current.y) * 0.12;
+        }
+      }
 
       const camX = camRef.current.x;
       const camY = camRef.current.y;
@@ -225,11 +320,18 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
           const py = dy * TILE_SIZE + offsetY;
 
           // Base tile (slight seasonal tint)
-          let baseFill = '#172023';
-          if (stateRef.current.env.season === 'autumn') baseFill = '#1d1a16';
-          else if (stateRef.current.env.season === 'winter') baseFill = '#1c2228';
-          else if (stateRef.current.env.season === 'summer') baseFill = '#161e1a';
-          ctx.fillStyle = baseFill;
+          const h = stateRef.current.env.heights[wy][wx];
+          
+          let colorParts = [23, 32, 35];
+          if (stateRef.current.env.season === 'autumn') colorParts = [29, 26, 22];
+          else if (stateRef.current.env.season === 'winter') colorParts = [28, 34, 40];
+          else if (stateRef.current.env.season === 'summer') colorParts = [22, 30, 26];
+
+          // Add brightness based on elevation
+          // height goes from 0 up to 15+. 0 is water (drawn later). Higher ground should be brighter.
+          // Let's add (h * 1.5) to the rgb values.
+          const shade = h * 2.5;
+          ctx.fillStyle = `rgba(${Math.min(255, colorParts[0] + shade)}, ${Math.min(255, colorParts[1] + shade)}, ${Math.min(255, colorParts[2] + shade)}, 0.4)`;
           ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
           // Visited cell hint
@@ -247,10 +349,22 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
             ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2, 4 + Math.sin(Date.now()/200)*2, 0, Math.PI*2);
             ctx.fill();
           } else if (tile === 'cave') {
-            ctx.fillStyle = '#0f0f0f';
+            // Cave rock outer
+            ctx.fillStyle = '#4a5054';
             ctx.beginPath();
-            ctx.ellipse(px + TILE_SIZE/2, py + TILE_SIZE/2 + 2, 8, 5, 0, 0, Math.PI*2);
+            ctx.moveTo(px + TILE_SIZE/2, py + 2);
+            ctx.lineTo(px + Math.min(24, TILE_SIZE) - 2, py + TILE_SIZE - 2);
+            ctx.lineTo(px + 2, py + TILE_SIZE - 2);
+            ctx.closePath();
             ctx.fill();
+            // Cave entrance (dark)
+            ctx.fillStyle = '#111';
+            ctx.beginPath();
+            ctx.ellipse(px + TILE_SIZE/2, py + TILE_SIZE - 5, 5, 7, 0, Math.PI, Math.PI*2);
+            ctx.fill();
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(px + TILE_SIZE/2 - 5, py + TILE_SIZE - 5, 10, 4);
           } else if (tile === 'water') {
             ctx.fillStyle = '#2b6b7a';
             ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
@@ -401,16 +515,36 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
             ctx.beginPath();
             ctx.arc(px + TILE_SIZE / 2, py + TILE_SIZE / 2 - 4, 1.5, 0, Math.PI * 2);
             ctx.fill();
+          } else if (tile === 'dry_grass') {
+            ctx.fillStyle = '#a89060';
+            for (let i = 0; i < 3; i++) {
+              ctx.beginPath();
+              ctx.moveTo(px + 6 + i*8, py + TILE_SIZE - 4);
+              ctx.lineTo(px + 10 + i*8, py + 8);
+              ctx.stroke();
+            }
+          } else if (tile === 'spark') {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2, 2 + Math.random()*2, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#fff';
+            ctx.fill();
+            ctx.shadowBlur = 0;
           }
         }
       }
 
       // Draw creatures
-      for (const cr of stateRef.current.env.creatures) {
-        const cpx = (cr.pos.x - camX) * TILE_SIZE + TILE_SIZE / 2;
-        const cpy = (cr.pos.y - camY) * TILE_SIZE + TILE_SIZE / 2;
-        if (cpx < -TILE_SIZE || cpx > canvas.width + TILE_SIZE || cpy < -TILE_SIZE || cpy > canvas.height + TILE_SIZE) continue;
-        drawCreature(ctx, cr, cpx, cpy);
+      if (showCreaturesRef.current) {
+        for (const cr of stateRef.current.env.creatures) {
+          if (hiddenKindsRef.current.includes(cr.kind)) continue;
+          const cpx = (cr.pos.x - camX) * TILE_SIZE + TILE_SIZE / 2;
+          const cpy = (cr.pos.y - camY) * TILE_SIZE + TILE_SIZE / 2;
+          if (cpx < -TILE_SIZE || cpx > canvas.width + TILE_SIZE || cpy < -TILE_SIZE || cpy > canvas.height + TILE_SIZE) continue;
+          drawCreature(ctx, cr, cpx, cpy);
+        }
       }
 
       // Time overlay
@@ -534,6 +668,35 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
       ctx.arc(havvaPx, havvaPy, 2.5, 0, Math.PI * 2);
       ctx.fill();
 
+      // Draw Children
+      if (stateRef.current.children && stateRef.current.children.length > 0) {
+        stateRef.current.children.forEach(child => {
+          const cpx = (child.pos.x - camX) * TILE_SIZE + TILE_SIZE / 2;
+          const cpy = (child.pos.y - camY) * TILE_SIZE + TILE_SIZE / 2;
+          
+          if (cpx < -TILE_SIZE || cpx > canvas.width + TILE_SIZE || cpy < -TILE_SIZE || cpy > canvas.height + TILE_SIZE) return;
+
+          const cPulse = 4 + Math.sin(Date.now() / 350) * 0.5;
+          const isBoy = child.gender === 'male';
+          
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = isBoy ? 'rgba(100, 200, 255, 0.4)' : 'rgba(255, 150, 200, 0.4)';
+          ctx.fillStyle = isBoy ? '#e8edf0' : '#fce7f3';
+          ctx.beginPath();
+          ctx.arc(cpx, cpy, cPulse, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = isBoy ? '#60a5fa' : '#f472b6';
+          ctx.beginPath();
+          ctx.arc(cpx, cpy, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.font = '8px monospace';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.fillText(child.name, cpx, cpy - 8);
+        });
+      }
+
       // System Status text over Adem
       ctx.font = '9px monospace';
       ctx.textAlign = 'center';
@@ -549,6 +712,35 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
 
       if (conditionText) {
          ctx.fillText(conditionText, ademPx, ademPy - 12);
+      }
+
+      // Draw Selection Highlight
+      if (selectedEntity) {
+        const sx = selectedEntity.data.pos?.x ?? selectedEntity.data.x;
+        const sy = selectedEntity.data.pos?.y ?? selectedEntity.data.y;
+        const hpx = (sx - camX) * TILE_SIZE;
+        const hpy = (sy - camY) * TILE_SIZE;
+        
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hpx, hpy, TILE_SIZE, TILE_SIZE);
+        
+        // Corner markers
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        // Top-left
+        ctx.moveTo(hpx, hpy + 6); ctx.lineTo(hpx, hpy); ctx.lineTo(hpx + 6, hpy);
+        // Top-right
+        ctx.moveTo(hpx + TILE_SIZE - 6, hpy); ctx.lineTo(hpx + TILE_SIZE, hpy); ctx.lineTo(hpx + TILE_SIZE, hpy + 6);
+        // Bottom-right
+        ctx.moveTo(hpx + TILE_SIZE, hpy + TILE_SIZE - 6); ctx.lineTo(hpx + TILE_SIZE, hpy + TILE_SIZE); ctx.lineTo(hpx + TILE_SIZE - 6, hpy + TILE_SIZE);
+        // Bottom-left
+        ctx.moveTo(hpx + 6, hpy + TILE_SIZE); ctx.lineTo(hpx, hpy + TILE_SIZE); ctx.lineTo(hpx, hpy + TILE_SIZE - 6);
+        ctx.stroke();
+
+        const pulse = (Math.sin(Date.now() / 200) + 1) * 0.5;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + pulse * 0.1})`;
+        ctx.fillRect(hpx, hpy, TILE_SIZE, TILE_SIZE);
       }
 
       rafRef.current = requestAnimationFrame(draw);
@@ -567,12 +759,185 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
         width={size.w}
         height={size.h}
         onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
-        onClick={handleMouseClick}
-        onMouseLeave={() => { setHoveredTile(null); setClickedTile(null); }}
+        onClick={handleCanvasClick}
+        onMouseLeave={handleMouseLeave}
         className="absolute inset-0 block cursor-crosshair"
         style={{ width: size.w, height: size.h }}
       />
+
+      {!isFollowingAdem && (
+        <button
+          onClick={() => setIsFollowingAdem(true)}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 hover:bg-black/80 text-white px-4 py-2 rounded-full text-xs font-mono font-bold border border-white/10 shadow-lg transition-colors z-40 flex items-center gap-2"
+        >
+          <Compass size={14} className="text-primary" />
+          ADEM'E ODAKLAN
+        </button>
+      )}
+      
+      {/* Filter Menu */}
+      <div className="absolute top-4 right-4 sm:left-4 sm:right-auto z-40">
+        <button 
+          onClick={() => setShowFilter(!showFilter)}
+          className="bg-background/80 hover:bg-muted backdrop-blur-md px-3 py-1.5 rounded border border-border/50 text-[10px] font-mono shadow-md uppercase tracking-wide flex items-center gap-2"
+        >
+          <Activity size={14} className={showCreatures ? "text-green-400" : "text-muted-foreground"} />
+          CANLI FİLTRESİ
+        </button>
+        {showFilter && (
+          <div className="mt-2 w-48 bg-background/95 backdrop-blur-xl border border-primary/20 rounded shadow-2xl p-2 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+            <label className="flex items-center gap-2 text-xs font-mono p-1 border-b border-border/50 pb-2 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={showCreatures} 
+                onChange={() => setShowCreatures(!showCreatures)} 
+                className="rounded-sm bg-muted border-border"
+              />
+              Tüm Canlıları Göster
+            </label>
+            <div className="flex flex-col max-h-48 overflow-y-auto custom-scrollbar pr-1">
+              {Object.keys(CREATURE_DETAILS).map(kind => (
+                <label key={kind} className={`flex items-center justify-between text-[10px] font-mono p-1 rounded hover:bg-muted/50 cursor-pointer ${!showCreatures || hiddenKinds.includes(kind) ? 'opacity-50' : 'opacity-100'}`}>
+                  <span className="capitalize">{kind}</span>
+                  <input 
+                    type="checkbox" 
+                    disabled={!showCreatures}
+                    checked={!hiddenKinds.includes(kind)}
+                    onChange={() => toggleKindFilter(kind)}
+                    className="rounded-sm bg-muted border-border"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Selected Entity Inspector */}
+      {selectedEntity && (
+        <div className="absolute top-16 left-4 w-72 bg-black/80 backdrop-blur-xl border border-primary/30 rounded-lg shadow-[0_0_30px_rgba(0,0,0,0.5)] p-4 animate-in fade-in slide-in-from-left-4 duration-500 z-50">
+          <div className="flex justify-between items-start mb-4">
+            <div className="space-y-1">
+              <h3 className="font-bold text-primary flex items-center gap-2 text-sm tracking-tight">
+                {selectedEntity.type === 'creature' ? (
+                  <>
+                    <Activity size={16} className="text-green-500" />
+                    {selectedEntity.data.kind?.toUpperCase() || 'ÖZEL VARLIK'}
+                  </>
+                ) : (
+                  <>
+                    <Layers size={16} className="text-blue-500" />
+                    BÖLGE ANALİZİ
+                  </>
+                )}
+              </h3>
+              <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1 opacity-60">
+                <Compass size={10} /> COORDINATE: {selectedEntity.data.pos?.x ?? selectedEntity.data.x}/{selectedEntity.data.pos?.y ?? selectedEntity.data.y}
+              </div>
+            </div>
+            <button 
+              onClick={() => setSelectedEntity(null)}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {selectedEntity.type === 'creature' ? (
+              <>
+                <div className="bg-white/5 p-3 rounded border border-white/10 relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-1 opacity-10">
+                      <Activity size={40} />
+                   </div>
+                   <p className="text-[11px] text-foreground/80 leading-relaxed italic relative z-10">
+                    "{selectedEntity.data.id === 'adem' || selectedEntity.data.id === 'havva' 
+                      ? 'İnsan bilincinin ilk kıvılcımlarını taşıyan ata. Çevresini anlamlandırıyor ve hayatta kalma stratejileri geliştiriyor.'
+                      : (CREATURE_DETAILS[selectedEntity.data.kind as CreatureKind]?.description || 'Dünyanın kadim türlerinden bir diğeri.')}"
+                   </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-muted/30 p-2 rounded border border-border/50">
+                    <div className="text-[9px] text-muted-foreground uppercase mb-1">Durumu</div>
+                    <div className="text-xs font-bold text-emerald-400">AKTİF // CANLI</div>
+                  </div>
+                  <div className="bg-muted/30 p-2 rounded border border-border/50">
+                    <div className="text-[9px] text-muted-foreground uppercase mb-1">Varlık ID</div>
+                    <div className="text-xs font-mono font-bold text-primary">#{selectedEntity.data.id.substring(0,6)}</div>
+                  </div>
+                </div>
+
+                {selectedEntity.data.vitals ? (
+                  <div className="space-y-3 pt-1 border-t border-border/20">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-muted-foreground uppercase font-bold tracking-tighter">Biyolojik Bütünlük</span>
+                        <span className="text-green-400 font-bold ml-auto">{Math.round(selectedEntity.data.vitals.health)}%</span>
+                      </div>
+                      <div className="h-1 bg-muted rounded-full overflow-hidden border border-white/5">
+                        <div 
+                          className="h-full bg-gradient-to-r from-green-600 to-green-400" 
+                          style={{ width: `${selectedEntity.data.vitals.health}%` }} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 p-2 bg-yellow-500/10 rounded border border-yellow-500/20">
+                    <Info size={12} className="text-yellow-500" />
+                    <span className="text-[10px] text-yellow-500 font-bold uppercase">Genişletilmiş telemetri verisi yok</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg text-center">
+                    <div className="text-[9px] text-blue-500/70 font-bold uppercase mb-1 tracking-widest">Biyom</div>
+                    <div className="text-xs font-bold text-blue-400 capitalize">
+                      {selectedEntity.data.biome === 'temperate' ? 'Ilıman' :
+                       selectedEntity.data.biome === 'tundra' ? 'Soğuk Tundra' :
+                       selectedEntity.data.biome === 'desert' ? 'Kurak Çöl' :
+                       selectedEntity.data.biome === 'jungle' ? 'Sık Orman' :
+                       selectedEntity.data.biome === 'volcanic' ? 'Volkanik' :
+                       selectedEntity.data.biome}
+                    </div>
+                  </div>
+                  <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-center">
+                    <div className="text-[9px] text-amber-500/70 font-bold uppercase mb-1 tracking-widest">Yükseklik</div>
+                    <div className="text-xs font-bold text-amber-400">{Math.round(selectedEntity.data.height * 100)} m</div>
+                  </div>
+                </div>
+
+                <div className="bg-muted/30 p-3 rounded-lg border border-border/50">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Zemin Yapısı</span>
+                    <span className="text-[9px] bg-primary/20 text-primary px-1 rounded">DOĞAL</span>
+                  </div>
+                  <div className="text-sm font-bold text-foreground capitalize tracking-tight flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${selectedEntity.data.tile === 'water' ? 'bg-blue-500' : selectedEntity.data.tile === 'toxic_swamp' ? 'bg-purple-500' : 'bg-primary'}`} />
+                    {selectedEntity.data.tile === 'empty' ? 'Açık Düzlük' : 
+                     selectedEntity.data.tile === 'water' ? 'Derin Su' : 
+                     selectedEntity.data.tile === 'tree' ? 'Ağaçlık' : 
+                     selectedEntity.data.tile === 'stone' ? 'Kayalık' : 
+                     selectedEntity.data.tile === 'herb' ? 'Şifalı Otlar' : 
+                     selectedEntity.data.tile === 'dry_grass' ? 'Kuru Otlak' : 
+                     selectedEntity.data.tile === 'safe_fruit' ? 'Meyve Ağacı' : 
+                     selectedEntity.data.tile === 'poison_fruit' ? 'Zehirli Sarmaşık' : 
+                     selectedEntity.data.tile === 'volcano' ? 'Aktif Volkan' : 
+                     selectedEntity.data.tile === 'cave' ? 'Karanlık Mağara' : 
+                     selectedEntity.data.tile.replace('_', ' ')}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Removed subtle grid overlay */}
 
@@ -677,6 +1042,7 @@ export function MapPanel({ state, knowledge }: { state: SimulationState, knowled
         <Legend color="#7fbe6f" label="Şifa" />
         <Legend color="#5a4a35" label="Diken" />
         <Legend color="#2b6b7a" label="Su" />
+        <Legend color="#a89060" label="Kuru Ot" />
         <Legend color="#d48a4c" label="Ateş" />
         <Legend color="#8a7a6c" label="Barınak" />
       </div>
@@ -890,6 +1256,32 @@ function drawCreature(
     ctx.fillStyle = '#e3636f';
     ctx.fillRect(cx - 3, cy - 2, 1.2, 1.2);
     ctx.fillRect(cx + 2, cy - 2, 1.2, 1.2);
+  } else if (kind === 'maymun') {
+    // Monkey body
+    ctx.fillStyle = '#8d6e63';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 2, 7, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Head
+    ctx.beginPath();
+    ctx.arc(cx, cy - 3, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Face (lighter shade)
+    ctx.fillStyle = '#c4a484';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 2, 3.5, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Long tail
+    ctx.strokeStyle = '#8d6e63';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + 4, cy + 5);
+    ctx.quadraticCurveTo(cx + 10, cy + 10, cx + 8, cy - 5);
+    ctx.stroke();
+    // Eyes
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - 1.5, cy - 3.5, 1, 1);
+    ctx.fillRect(cx + 0.5, cy - 3.5, 1, 1);
   }
 }
 

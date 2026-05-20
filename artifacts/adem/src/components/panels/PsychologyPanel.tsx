@@ -9,19 +9,20 @@ import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
 interface Props {
   state: SimulationState;
+  person: any; // Person
 }
 
-export function PsychologyPanel({ state }: Props) {
-  const { adem, havva } = state;
-  const ademPsy = adem.psychology;
-  const havvaPsy = havva.psychology;
+export function PsychologyPanel({ state, person }: Props) {
+  const isTabulaRasa = !!state.population;
+  const currentPerson = person || state.adem;
+  const secondaryPerson = isTabulaRasa ? null : state.havva;
   
   // Use combined knowledge for the map/observations view
-  const combinedKnowledge = { ...adem.knowledge, ...havva.knowledge };
+  const combinedKnowledge = isTabulaRasa ? currentPerson.knowledge : { ...state.adem.knowledge, ...state.havva.knowledge };
   const klKeys = Object.keys(combinedKnowledge).slice(-5);
   const inv = state.inventions.slice(-3);
 
-  const impressions = Object.values(ademPsy.impressions);
+  const impressions = Object.values(currentPerson.psychology.impressions as Record<string, any>);
   const likes = impressions.filter(i => i.sentiment > 0).sort((a,b) => b.sentiment - a.sentiment);
   const dislikes = impressions.filter(i => i.sentiment < 0).sort((a,b) => a.sentiment - b.sentiment);
 
@@ -31,14 +32,14 @@ export function PsychologyPanel({ state }: Props) {
     setEmotionHistory(prev => {
       const newData = [...prev, {
         time: state.ticksSurvived,
-        ademHappiness: ademPsy.emotions.happiness,
-        ademStress: ademPsy.emotions.stress,
-        havvaHappiness: havvaPsy.emotions.happiness,
-        havvaStress: havvaPsy.emotions.stress,
+        personHappiness: currentPerson.psychology.emotions.happiness,
+        personStress: currentPerson.psychology.emotions.stress,
+        secondaryHappiness: secondaryPerson ? secondaryPerson.psychology.emotions.happiness : 0,
+        secondaryStress: secondaryPerson ? secondaryPerson.psychology.emotions.stress : 0,
       }];
       return newData.slice(-30);
     });
-  }, [ademPsy.emotions, havvaPsy.emotions, state.ticksSurvived]);
+  }, [currentPerson.psychology.emotions, secondaryPerson?.psychology.emotions, state.ticksSurvived]);
 
   const emotionColors = {
     happiness: 'bg-emerald-500',
@@ -49,8 +50,9 @@ export function PsychologyPanel({ state }: Props) {
     tension: 'bg-purple-600',
   };
 
-  const renderEmotionGroup = (person: any, label: string, colorClass: string) => {
-    const emos = person.psychology.emotions;
+  const renderEmotionGroup = (p: any, label: string, colorClass: string) => {
+    if (!p) return null;
+    const emos = p.psychology.emotions;
     return (
       <div className="space-y-3 bg-muted/10 p-3 rounded-lg border border-border/20">
          <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center gap-2 ${colorClass}`}>
@@ -77,7 +79,7 @@ export function PsychologyPanel({ state }: Props) {
               <Brain size={10}/> AKTİF ODAK:
             </div>
             <div className="text-[10px] font-mono text-primary leading-tight italic bg-black/10 p-1.5 rounded line-clamp-2">
-               {person.thinking}
+               {p.thinking}
             </div>
          </div>
       </div>
@@ -93,13 +95,13 @@ export function PsychologyPanel({ state }: Props) {
         <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest border-b border-border/40 pb-2">
           <div className="flex items-center gap-2">
             <Network size={16} className="text-primary" />
-            <span>PSİKOLOJİK KARŞILAŞTIRMA (KOLEKTİF BİLİNÇ)</span>
+            <span>PSİKOLOJİK DURUM ({isTabulaRasa ? 'BİREYSEL' : 'KOLEKTİF BİLİNÇ'})</span>
           </div>
         </div>
         
-        <div className="grid grid-cols-2 gap-4">
-           {renderEmotionGroup(adem, "ADEM", "text-blue-400")}
-           {renderEmotionGroup(havva, "HAVVA", "text-pink-400")}
+        <div className={`grid ${isTabulaRasa ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+           {renderEmotionGroup(currentPerson, currentPerson.name.toUpperCase(), currentPerson.gender === 'male' ? "text-blue-400" : "text-pink-400")}
+           {!isTabulaRasa && secondaryPerson && renderEmotionGroup(secondaryPerson, secondaryPerson.name.toUpperCase(), "text-pink-400")}
         </div>
       </section>
 
@@ -118,16 +120,22 @@ export function PsychologyPanel({ state }: Props) {
                 contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: 'none', borderRadius: '4px', fontSize: '9px', color: '#fff' }}
                 itemStyle={{ padding: 0 }}
               />
-              <Line type="monotone" name="Adem Mutluluk" dataKey="ademHappiness" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
-              <Line type="monotone" name="Havva Mutluluk" dataKey="havvaHappiness" stroke="#ec4899" strokeWidth={2} dot={false} isAnimationActive={false} />
-              <Line type="monotone" name="Adem Stres" dataKey="ademStress" stroke="#3b82f6" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
-              <Line type="monotone" name="Havva Stres" dataKey="havvaStress" stroke="#ec4899" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+              <Line type="monotone" name={`${currentPerson.name} Mutluluk`} dataKey="personHappiness" stroke={currentPerson.gender === 'male' ? "#3b82f6" : "#ec4899"} strokeWidth={2} dot={false} isAnimationActive={false} />
+              <Line type="monotone" name={`${currentPerson.name} Stres`} dataKey="personStress" stroke={currentPerson.gender === 'male' ? "#3b82f6" : "#ec4899"} strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+              {!isTabulaRasa && secondaryPerson && (
+                <>
+                  <Line type="monotone" name={`${secondaryPerson.name} Mutluluk`} dataKey="secondaryHappiness" stroke="#ec4899" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" name={`${secondaryPerson.name} Stres`} dataKey="secondaryStress" stroke="#ec4899" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
         <div className="flex justify-center gap-4 text-[8px] font-mono uppercase text-muted-foreground">
-           <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#3b82f6]"/> Adem</div>
-           <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ec4899]"/> Havva</div>
+           <div className="flex items-center gap-1"><div className={`w-2 h-0.5 ${currentPerson.gender === 'male' ? 'bg-[#3b82f6]' : 'bg-[#ec4899]'}`}/> {currentPerson.name}</div>
+           {!isTabulaRasa && secondaryPerson && (
+             <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-[#ec4899]"/> {secondaryPerson.name}</div>
+           )}
         </div>
       </section>
 
@@ -320,10 +328,58 @@ export function PsychologyPanel({ state }: Props) {
         </section>
       </div>
 
+      {/* BEHAVIORAL ANALYSIS AI */}
+      <section className="space-y-3 shrink-0">
+        <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+          <Brain size={14} className="text-primary/70" />
+          <span>Davranışsal Model Analizi</span>
+        </div>
+        <div className="bg-primary/5 rounded p-3 border border-primary/10 space-y-2">
+          {(() => {
+            const currentPsy = person.psychology;
+            const h = currentPsy.emotions.happiness;
+            const s = currentPsy.emotions.stress;
+            const c = currentPsy.emotions.curiosity;
+            const f = currentPsy.emotions.fear;
+            let dominant = "Dengeli";
+            let strategy = "Rutin koruma";
+            if (s > 70 || f > 60) {
+              dominant = "Korku ve Anksiyete";
+              strategy = "Hayatta Kalma / Kaçınma (Survival/Avoidance)";
+            } else if (c > 60 && h > 40) {
+              dominant = "Merak ve Keşif";
+              strategy = "Dünyayı Anlama / Öğrenme (Explorative)";
+            } else if (h > 70) {
+              dominant = "Haz ve Güven";
+              strategy = "Sosyal Bağ Kurma / Üreme (Social Pair-bonding)";
+            }
+
+            return (
+              <>
+                 <div className="flex justify-between items-center text-[10px] border-b border-border/10 pb-1">
+                   <span className="text-muted-foreground">Baskın Duygu:</span>
+                   <span className="font-mono text-primary font-bold">{dominant}</span>
+                 </div>
+                 <div className="flex justify-between items-center text-[10px] border-b border-border/10 pb-1">
+                   <span className="text-muted-foreground">Mevcut Strateji:</span>
+                   <span className="font-mono text-primary font-bold">{strategy}</span>
+                 </div>
+                 <p className="text-[10px] text-muted-foreground italic leading-relaxed pt-1">
+                   {person.name}'un mevcut hafıza kayıtlarında ({impressions.length} izlenim) 
+                   {likes.length > dislikes.length ? " pozitif ödül mekanizmaları " : " travmatik hatıralar "} 
+                   daha yoğun olarak yer alıyor. Stres seviyesi ({Math.round(s)}%) ve korku ({Math.round(f)}%) faktörleri 
+                   davranışsal çıktıyı doğrudan yönlendiriyor.
+                 </p>
+              </>
+            );
+          })()}
+        </div>
+      </section>
+
       <div className="pt-4 border-t border-border/40 shrink-0 mt-auto">
         <div className="bg-primary/5 rounded p-3 border border-primary/10">
           <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-            "Adem dünyayı sadece verilere göre değil, hissettiklerine göre de anlamlandırıyor. 
+            "{person.name} dünyayı sadece verilere göre değil, hissettiklerine göre de anlamlandırıyor. 
             Acıdan kaçmayı ve hazza yaklaşmayı öğreniyor; bu onun hayatta kalma stratejisinin çekirdeğidir."
           </p>
         </div>
